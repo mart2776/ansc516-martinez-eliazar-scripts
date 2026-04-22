@@ -1,0 +1,102 @@
+# Set working directory
+setwd("C:/Users/mart2776/OneDrive - purdue.edu/Desktop/ANSC-2026/FINAL PROJECT")
+
+# Load packages
+library(qiime2R)
+library(phyloseq)
+library(tidyverse)
+
+# --------------------------------------------------------
+# Build phyloseq object
+# --------------------------------------------------------
+
+physeq <- qza_to_phyloseq(
+  features = "table_run1.qza",
+  taxonomy = "taxonomy.qza",
+  tree     = "rooted-tree.qza",
+  metadata = "PSB.meta.data.Martinez.qiime.tsv"
+)
+
+# Clean metadata
+metadata <- data.frame(sample_data(physeq), check.names = FALSE)
+metadata <- metadata[rownames(metadata) != "#q2:types", , drop = FALSE]
+
+metadata <- metadata %>%
+  rownames_to_column("sample.id") %>%
+  mutate(
+    sample.id = as.character(sample.id),
+    crop = recode(crop, "Soy" = "Soybean"),
+    crop = factor(crop, levels = c("Corn", "Soybean")),
+    bag  = factor(bag, levels = c("1um", "45um", "1000um", "none")),
+    time = factor(time, levels = c("T0", "T1")),
+    farm.type = factor(farm.type)
+  )
+
+rownames(metadata) <- metadata$sample.id
+metadata$sample.id <- NULL
+
+sample_data(physeq) <- sample_data(metadata)
+
+# --------------------------------------------------------
+# Subset T1 data
+# --------------------------------------------------------
+
+physeq_crop_T1 <- subset_samples(physeq, time == "T1" & !is.na(crop))
+physeq_crop_T1 <- prune_taxa(taxa_sums(physeq_crop_T1) > 0, physeq_crop_T1)
+
+physeq_bag_T1 <- subset_samples(physeq, time == "T1" & !is.na(bag) & bag != "none")
+physeq_bag_T1 <- prune_taxa(taxa_sums(physeq_bag_T1) > 0, physeq_bag_T1)
+
+# --------------------------------------------------------
+# Taxa barplot function (sample-level)
+# --------------------------------------------------------
+
+make_taxa_barplot <- function(physeq_obj, tax_level, group_var,
+                             abundance_filter = 0.02,
+                             output_prefix = "plot") {
+
+  taxa.df <- physeq_obj %>%
+    tax_glom(taxrank = tax_level) %>%
+    transform_sample_counts(function(x) x / sum(x)) %>%
+    psmelt()
+
+  # keep taxa above threshold
+  keep_taxa <- taxa.df %>%
+    group_by(.data[[tax_level]]) %>%
+    summarise(max_abund = max(Abundance), .groups = "drop") %>%
+    filter(max_abund > abundance_filter) %>%
+    pull(.data[[tax_level]])
+
+  taxa.df <- taxa.df %>%
+    filter(.data[[tax_level]] %in% keep_taxa)
+
+  p <- ggplot(taxa.df, aes(x = Sample, y = Abundance, fill = .data[[tax_level]])) +
+    geom_bar(stat = "identity") +
+    facet_grid(. ~ .data[[group_var]], scales = "free_x", space = "free_x") +
+    scale_fill_brewer(palette = "Paired") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      legend.title = element_blank()
+    ) +
+    ylab("Relative abundance") +
+    xlab("Samples") +
+    ggtitle(paste0(tax_level, " (T1)"))
+
+  ggsave(
+    paste0("output/taxa/", output_prefix, "_", tax_level, "_", group_var, ".png"),
+    p, width = 10, height = 5
+  )
+}
+
+# --------------------------------------------------------
+# Generate plots
+# --------------------------------------------------------
+
+for (lvl in c("Phylum", "Family", "Genus")) {
+
+  make_taxa_barplot(physeq_crop_T1, lvl, "crop", output_prefix = "T1_crop")
+
+  make_taxa_barplot(physeq_bag_T1, lvl, "bag", output_prefix = "T1_bag")
+}
