@@ -1,0 +1,171 @@
+# Set working directory
+setwd("C:/Users/mart2776/OneDrive - purdue.edu/Desktop/ANSC-2026/FINAL PROJECT")
+
+# Load packages
+library(qiime2R)
+library(randomForest)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# --------------------------------------------------------
+# Read data
+# --------------------------------------------------------
+
+metadata <- read_q2metadata("PSB.meta.data.Martinez.qiime.tsv")
+table_qza <- read_qza("table_run1.qza")
+
+metadata_df <- as.data.frame(metadata)
+rownames(metadata_df) <- metadata_df$SampleID
+
+otu <- as.data.frame(table_qza$data)
+
+# Transpose: samples as rows
+otu_t <- as.data.frame(t(otu))
+
+# --------------------------------------------------------
+# Match samples
+# --------------------------------------------------------
+
+common_samples <- intersect(rownames(otu_t), rownames(metadata_df))
+
+otu_rf <- otu_t[common_samples, , drop = FALSE]
+meta_rf <- metadata_df[common_samples, , drop = FALSE]
+
+# --------------------------------------------------------
+# Filter features
+# --------------------------------------------------------
+
+# Keep features present in >2 samples
+otu_rf <- otu_rf[, colSums(otu_rf > 0) > 2, drop = FALSE]
+
+# --------------------------------------------------------
+# Define response variable
+# --------------------------------------------------------
+
+response_var <- "crop"   # change if needed
+
+keep <- !is.na(meta_rf[[response_var]])
+otu_rf <- otu_rf[keep, , drop = FALSE]
+meta_rf <- meta_rf[keep, , drop = FALSE]
+
+response <- as.factor(meta_rf[[response_var]])
+
+# --------------------------------------------------------
+# Run Random Forest
+# --------------------------------------------------------
+
+set.seed(123)
+
+rf_model <- randomForest(
+  x = otu_rf,
+  y = response,
+  ntree = 500,
+  importance = TRUE
+)
+
+print(rf_model)
+print(rf_model$confusion)
+
+# --------------------------------------------------------
+# Variable importance
+# --------------------------------------------------------
+
+imp <- importance(rf_model)
+imp_df <- as.data.frame(imp)
+imp_df$Feature <- rownames(imp_df)
+
+imp_df <- imp_df %>%
+  arrange(desc(MeanDecreaseGini))
+
+write.csv(imp_df,
+          paste0("RF_importance_", response_var, ".csv"),
+          row.names = FALSE)
+
+# --------------------------------------------------------
+# Merge taxonomy
+# --------------------------------------------------------
+
+tax <- read_qza("taxonomy.qza")
+tax_df <- as.data.frame(tax$data)
+
+tax_df <- tax_df %>%
+  rename(Feature = `Feature.ID`) %>%
+  separate(
+    Taxon,
+    into = c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),
+    sep = ";",
+    fill = "right"
+  ) %>%
+  mutate(across(everything(), ~ gsub("^[a-z]__", "", .)))
+
+imp_tax <- imp_df %>%
+  left_join(tax_df, by = "Feature")
+
+write.csv(
+  imp_tax,
+  paste0("RF_importance_taxonomy_", response_var, ".csv"),
+  row.names = FALSE
+)
+
+# --------------------------------------------------------
+# Top 20 features - Due to high number of samples 
+# --------------------------------------------------------
+
+top20 <- imp_tax %>%
+  slice(1:20) %>%
+  mutate(Label = ifelse(!is.na(Genus), Genus, Feature))
+
+top20$Label <- factor(top20$Label, levels = rev(top20$Label))
+
+p <- ggplot(top20, aes(x = MeanDecreaseGini, y = Label)) +
+  geom_point(size = 4) +
+  theme_minimal() +
+  labs(
+    title = paste("Random Forest Importance -", response_var),
+    x = "Mean Decrease Gini",
+    y = "Taxa"
+  )
+
+ggsave(
+  paste0("RF_importance_top20_", response_var, ".png"),
+  p,
+  width = 8,
+  height = 6
+)
+
+# --------------------------------------------------------
+# Confusion matrix plot
+# --------------------------------------------------------
+
+conf_df <- as.data.frame(rf_model$confusion)
+conf_df$Observed <- rownames(conf_df)
+rownames(conf_df) <- NULL
+
+conf_plot <- conf_df %>%
+  select(-class.error) %>%
+  pivot_longer(-Observed, names_to = "Predicted", values_to = "Count")
+
+p_conf <- ggplot(conf_plot, aes(x = Predicted, y = Observed, fill = Count)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Count), size = 4) +
+  theme_minimal() +
+  labs(
+    title = paste("Confusion Matrix -", response_var),
+    x = "Predicted",
+    y = "Observed"
+  )
+
+ggsave(
+  paste0("RF_confusion_", response_var, ".png"),
+  p_conf,
+  width = 6,
+  height = 5
+)
+
+# --------------------------------------------------------
+# Save model
+# --------------------------------------------------------
+
+saveRDS(rf_model, paste0("RF_model_", response_var, ".rds"))
+
