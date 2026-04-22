@@ -1,0 +1,177 @@
+# Set working directory
+setwd("C:/Users/mart2776/OneDrive - purdue.edu/Desktop/ANSC-2026/FINAL PROJECT")
+
+# Load libraries
+library(qiime2R)
+library(phyloseq)
+library(ANCOMBC)
+library(dplyr)
+library(tidyr)
+
+# --------------------------------------------------------
+# Read data
+# --------------------------------------------------------
+
+metadata <- read_q2metadata("PSB.meta.data.Martinez.qiime.tsv")
+tab <- read_qza("table_run1.qza")
+tax <- read_qza("taxonomy.qza")
+
+# --------------------------------------------------------
+# Filter to project samples at T1
+# --------------------------------------------------------
+
+metadata_t1 <- subset(metadata, Type == "project" & time == "T1")
+
+shared_samples <- intersect(metadata_t1$SampleID, colnames(tab$data))
+
+metadata_final <- metadata_t1[metadata_t1$SampleID %in% shared_samples, , drop = FALSE]
+metadata_final <- metadata_final[match(shared_samples, metadata_final$SampleID), , drop = FALSE]
+
+feature_t1 <- tab$data[, shared_samples, drop = FALSE]
+
+# --------------------------------------------------------
+# Filter ASVs
+# --------------------------------------------------------
+
+# Prevalence filter (≥20% samples)
+prev_cutoff <- ceiling(0.20 * ncol(feature_t1))
+feature_filt <- feature_t1[rowSums(feature_t1 > 0) >= prev_cutoff, , drop = FALSE]
+
+# Abundance filter (≥10 total counts)
+feature_filt <- feature_filt[rowSums(feature_filt) >= 10, , drop = FALSE]
+
+# --------------------------------------------------------
+# Parse taxonomy
+# --------------------------------------------------------
+
+taxonomy_df <- tax$data
+
+if ("Feature.ID" %in% colnames(taxonomy_df)) {
+  rownames(taxonomy_df) <- taxonomy_df$Feature.ID
+}
+
+shared_taxa <- intersect(rownames(feature_filt), rownames(taxonomy_df))
+
+feature_filt <- feature_filt[shared_taxa, , drop = FALSE]
+taxonomy_df <- taxonomy_df[shared_taxa, , drop = FALSE]
+
+taxonomy_parsed <- taxonomy_df %>%
+  select(Taxon) %>%
+  separate(
+    Taxon,
+    into = c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),
+    sep = ";",
+    fill = "right"
+  ) %>%
+  mutate(across(everything(), ~ gsub("^[a-z]__", "", .))) %>%
+  mutate(across(everything(), ~ ifelse(is.na(.) | . == "", "Unknown", .)))
+
+rownames(taxonomy_parsed) <- rownames(taxonomy_df)
+
+# --------------------------------------------------------
+# Preparing metadata
+# --------------------------------------------------------
+
+rownames(metadata_final) <- metadata_final$SampleID
+
+metadata_final$crop <- as.factor(metadata_final$crop)
+metadata_final$bag <- as.factor(metadata_final$bag)
+metadata_final$farm.type <- as.factor(metadata_final$farm.type)
+
+# --------------------------------------------------------
+# Building phyloseq object
+# --------------------------------------------------------
+
+ps <- phyloseq(
+  otu_table(feature_filt, taxa_are_rows = TRUE),
+  tax_table(as.matrix(taxonomy_parsed)),
+  sample_data(metadata_final)
+)
+
+# --------------------------------------------------------
+# Aggregate taxonomic levels
+# --------------------------------------------------------
+
+ps_genus <- tax_glom(ps, "Genus")
+ps_genus <- prune_taxa(taxa_sums(ps_genus) > 0, ps_genus)
+
+ps_phylum <- tax_glom(ps, "Phylum")
+ps_phylum <- prune_taxa(taxa_sums(ps_phylum) > 0, ps_phylum)
+
+# --------------------------------------------------------
+# Running ANCOM-BC
+# --------------------------------------------------------
+
+run_ancombc <- function(ps_obj, variable) {
+  ancombc(
+    data = ps_obj,
+    formula = variable,
+    p_adj_method = "BH",
+    prv_cut = 0.10,
+    lib_cut = 1000,
+    group = variable,
+    struc_zero = TRUE,
+    neg_lb = TRUE,
+    conserve = TRUE,
+    alpha = 0.05
+  )
+}
+
+# Genus
+res_genus_crop <- run_ancombc(ps_genus, "crop")
+res_genus_bag  <- run_ancombc(ps_genus, "bag")
+res_genus_farm <- run_ancombc(ps_genus, "farm.type")
+
+# Phylum
+res_phylum_crop <- run_ancombc(ps_phylum, "crop")
+res_phylum_bag  <- run_ancombc(ps_phylum, "bag")
+res_phylum_farm <- run_ancombc(ps_phylum, "farm.type")
+
+# --------------------------------------------------------
+# Extracting significant taxa
+# --------------------------------------------------------
+
+get_significant <- function(res_obj, ps_obj) {
+  
+  diff <- res_obj$res$diff_abn
+  diff_numeric <- diff[, !colnames(diff) %in% "taxon", drop = FALSE]
+  
+  sig_rows <- apply(diff_numeric, 1, function(x) any(x == TRUE, na.rm = TRUE))
+  
+  tax_df <- as.data.frame(tax_table(ps_obj))
+  tax_df[sig_rows, , drop = FALSE]
+}
+
+# Significant taxa
+sig_genus_crop <- get_significant(res_genus_crop, ps_genus)
+sig_genus_bag  <- get_significant(res_genus_bag, ps_genus)
+sig_genus_farm <- get_significant(res_genus_farm, ps_genus)
+
+sig_phylum_crop <- get_significant(res_phylum_crop, ps_phylum)
+sig_phylum_bag  <- get_significant(res_phylum_bag, ps_phylum)
+sig_phylum_farm <- get_significant(res_phylum_farm, ps_phylum)
+
+# --------------------------------------------------------
+# Saving results
+# --------------------------------------------------------
+
+write.csv(sig_genus_crop,  "ANCOMBC_Genus_crop_significant.csv")
+write.csv(sig_genus_bag,   "ANCOMBC_Genus_bag_significant.csv")
+write.csv(sig_genus_farm,  "ANCOMBC_Genus_farmtype_significant.csv")
+
+write.csv(sig_phylum_crop, "ANCOMBC_Phylum_crop_significant.csv")
+write.csv(sig_phylum_bag,  "ANCOMBC_Phylum_bag_significant.csv")
+write.csv(sig_phylum_farm, "ANCOMBC_Phylum_farmtype_significant.csv")
+
+# --------------------------------------------------------
+# Summary
+# --------------------------------------------------------
+
+cat("\nSignificant taxa:\n")
+cat("Genus - crop:", nrow(sig_genus_crop), "\n")
+cat("Genus - bag:", nrow(sig_genus_bag), "\n")
+cat("Genus - farm.type:", nrow(sig_genus_farm), "\n")
+
+cat("Phylum - crop:", nrow(sig_phylum_crop), "\n")
+cat("Phylum - bag:", nrow(sig_phylum_bag), "\n")
+cat("Phylum - farm.type:", nrow(sig_phylum_farm), "\n")
