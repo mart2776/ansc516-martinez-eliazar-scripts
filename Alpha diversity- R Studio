@@ -1,0 +1,232 @@
+# Set working directory 
+setwd("C:/Users/mart2776/OneDrive - purdue.edu/Desktop/ANSC-2026/FINAL PROJECT")
+
+# Load packages
+library(qiime2R)
+library(tidyverse)
+
+# Read metadata
+meta <- read.delim("PSB.meta.data.Martinez.qiime.tsv",
+                   sep = "\t",
+                   header = TRUE,
+                   stringsAsFactors = FALSE)
+
+# Remove QIIME type row
+meta <- meta[-1, ]
+
+# Clean metadata types
+meta <- meta %>%
+  mutate(
+    sample.id = as.character(sample.id),
+    crop = as.factor(crop),
+    bag = as.factor(bag),
+    farm.type = as.factor(farm.type),
+    bag.position = as.factor(bag.position),
+    time = as.factor(time),
+    field = as.factor(field),
+    plot = as.factor(plot)
+  )
+
+# Read alpha diversity outputs
+observed <- read_qza("observed_features_vector.qza")$data %>%
+  rownames_to_column("sample.id")
+
+shannon <- read_qza("shannon_vector.qza")$data %>%
+  rownames_to_column("sample.id")
+
+evenness <- read_qza("evenness_vector.qza")$data %>%
+  rownames_to_column("sample.id")
+
+faith_pd <- read_qza("faith_pd_vector.qza")$data %>%
+  rownames_to_column("sample.id")
+
+# Join alpha diversity metrics with metadata
+observed_meta <- observed %>% left_join(meta, by = "sample.id")
+shannon_meta  <- shannon %>% left_join(meta, by = "sample.id")
+evenness_meta <- evenness %>% left_join(meta, by = "sample.id")
+faith_meta    <- faith_pd %>% left_join(meta, by = "sample.id")
+
+# --------------------------------------------------------
+# Time comparison - Exploratory 
+# --------------------------------------------------------
+
+# Checking whether Shannon diversity shifts between T0 and T1
+ggplot(shannon_meta, aes(x = time, y = shannon_entropy, fill = time)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Shannon diversity: T0 vs T1",
+       x = "Time",
+       y = "Shannon diversity")
+
+kruskal.test(shannon_entropy ~ time, data = shannon_meta)
+
+# --------------------------------------------------------
+# Crop effect - Soy nean vs Corn 
+# --------------------------------------------------------
+
+# Keeping only samples with crop information
+observed_crop <- observed_meta %>% filter(!is.na(crop))
+shannon_crop  <- shannon_meta %>% filter(!is.na(crop))
+evenness_crop <- evenness_meta %>% filter(!is.na(crop))
+faith_crop    <- faith_meta %>% filter(!is.na(crop))
+
+# Observed features by crop
+ggplot(observed_crop, aes(x = crop, y = observed_features, fill = crop)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Observed Features by Crop",
+       x = "Crop",
+       y = "Observed Features")
+
+kruskal.test(observed_features ~ crop, data = observed_crop)
+
+# Shannon diversity by crop
+ggplot(shannon_crop, aes(x = crop, y = shannon_entropy, fill = crop)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Shannon Diversity by Crop",
+       x = "Crop",
+       y = "Shannon Diversity")
+
+kruskal.test(shannon_entropy ~ crop, data = shannon_crop)
+
+# Pielou's evenness by crop
+ggplot(evenness_crop, aes(x = crop, y = pielou_evenness, fill = crop)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Pielou's Evenness by Crop",
+       x = "Crop",
+       y = "Pielou's Evenness")
+
+kruskal.test(pielou_evenness ~ crop, data = evenness_crop)
+
+# Faith PD by crop
+ggplot(faith_crop, aes(x = crop, y = faith_pd, fill = crop)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Faith PD by Crop",
+       x = "Crop",
+       y = "Faith PD")
+
+kruskal.test(faith_pd ~ crop, data = faith_crop)
+
+# --------------------------------------------------------
+# Management effect - Convetional vs. Convservation 
+# --------------------------------------------------------
+
+# Keeping only samples with management information
+observed_mgmt <- observed_meta %>% filter(!is.na(farm.type))
+shannon_mgmt  <- shannon_meta %>% filter(!is.na(farm.type))
+evenness_mgmt <- evenness_meta %>% filter(!is.na(farm.type))
+faith_mgmt    <- faith_meta %>% filter(!is.na(farm.type))
+
+# Observed features by management
+ggplot(observed_mgmt, aes(x = farm.type, y = observed_features, fill = farm.type)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Observed Features by Management",
+       x = "Management",
+       y = "Observed Features")
+
+kruskal.test(observed_features ~ farm.type, data = observed_mgmt)
+
+# Shannon diversity by management
+ggplot(shannon_mgmt, aes(x = farm.type, y = shannon_entropy, fill = farm.type)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Shannon Diversity by Management",
+       x = "Management",
+       y = "Shannon Diversity")
+
+kruskal.test(shannon_entropy ~ farm.type, data = shannon_mgmt)
+
+# Pielou's evenness by management
+ggplot(evenness_mgmt, aes(x = farm.type, y = pielou_evenness, fill = farm.type)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Pielou's Evenness by Management",
+       x = "Management",
+       y = "Pielou's Evenness")
+
+kruskal.test(pielou_evenness ~ farm.type, data = evenness_mgmt)
+
+# Faith PD by management
+ggplot(faith_mgmt, aes(x = farm.type, y = faith_pd, fill = farm.type)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Faith PD by Management",
+       x = "Management",
+       y = "Faith PD")
+
+kruskal.test(faith_pd ~ farm.type, data = faith_mgmt)
+
+# --------------------------------------------------------
+# Bag effect at T1 - Including none samples 
+# --------------------------------------------------------
+
+# Keeping only T1 samples with bag information
+observed_bag_T1 <- observed_meta %>%
+  filter(!is.na(bag), time == "T1")
+
+shannon_bag_T1 <- shannon_meta %>%
+  filter(!is.na(bag), time == "T1")
+
+evenness_bag_T1 <- evenness_meta %>%
+  filter(!is.na(bag), time == "T1")
+
+faith_bag_T1 <- faith_meta %>%
+  filter(!is.na(bag), time == "T1")
+
+# Observed features by bag type
+ggplot(observed_bag_T1, aes(x = bag, y = observed_features, fill = bag)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Observed Features by Bag Type (T1)",
+       x = "Bag Type",
+       y = "Observed Features")
+
+kruskal.test(observed_features ~ bag, data = observed_bag_T1)
+
+# Shannon diversity by bag type
+ggplot(shannon_bag_T1, aes(x = bag, y = shannon_entropy, fill = bag)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Shannon Diversity by Bag Type (T1)",
+       x = "Bag Type",
+       y = "Shannon Diversity")
+
+kruskal.test(shannon_entropy ~ bag, data = shannon_bag_T1)
+
+# Pielou's evenness by bag type
+ggplot(evenness_bag_T1, aes(x = bag, y = pielou_evenness, fill = bag)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Pielou's Evenness by Bag Type (T1)",
+       x = "Bag Type",
+       y = "Pielou's Evenness")
+
+kruskal.test(pielou_evenness ~ bag, data = evenness_bag_T1)
+
+# Faith PD by bag type
+ggplot(faith_bag_T1, aes(x = bag, y = faith_pd, fill = bag)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Faith PD by Bag Type (T1)",
+       x = "Bag Type",
+       y = "Faith PD")
+
+kruskal.test(faith_pd ~ bag, data = faith_bag_T1)
+
