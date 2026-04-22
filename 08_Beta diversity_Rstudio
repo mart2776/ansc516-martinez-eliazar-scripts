@@ -1,0 +1,265 @@
+# Set working directory 
+setwd("C:/Users/mart2776/OneDrive - purdue.edu/Desktop/ANSC-2026/FINAL PROJECT")
+
+# Load  packages
+library(qiime2R)
+library(tidyverse)
+
+# Read metadata
+meta <- read.delim("PSB.meta.data.Martinez.qiime.tsv",
+                   sep = "\t",
+                   header = TRUE,
+                   stringsAsFactors = FALSE)
+
+# Remove QIIME type row
+meta <- meta[-1, ]
+
+# Clean metadata types
+meta <- meta %>%
+  mutate(
+    sample.id = as.character(sample.id),
+    crop = as.factor(crop),
+    bag = as.factor(bag),
+    farm.type = as.factor(farm.type),
+    bag.position = as.factor(bag.position),
+    time = as.factor(time),
+    field = as.factor(field),
+    plot = as.factor(plot),
+    farmcode = as.factor(farmcode),
+    fieldname = as.factor(fieldname)
+  )
+
+# Read PCoA outputs
+jaccard_pcoa <- read_qza("jaccard_pcoa_results.qza")$data
+bray_pcoa <- read_qza("bray_curtis_pcoa_results.qza")$data
+unweighted_pcoa <- read_qza("unweighted_unifrac_pcoa_results.qza")$data
+weighted_pcoa <- read_qza("weighted_unifrac_pcoa_results.qza")$data
+
+# Merge ordination vectors with metadata
+jaccard_meta <- jaccard_pcoa$Vectors %>%
+  rename(sample.id = SampleID) %>%
+  left_join(meta, by = "sample.id")
+
+bray_meta <- bray_pcoa$Vectors %>%
+  rename(sample.id = SampleID) %>%
+  left_join(meta, by = "sample.id")
+
+unweighted_meta <- unweighted_pcoa$Vectors %>%
+  rename(sample.id = SampleID) %>%
+  left_join(meta, by = "sample.id")
+
+weighted_meta <- weighted_pcoa$Vectors %>%
+  rename(sample.id = SampleID) %>%
+  left_join(meta, by = "sample.id")
+
+# --------------------------------------------------------
+# Crop effect at T1
+# --------------------------------------------------------
+
+jaccard_crop_T1 <- jaccard_meta %>%
+  filter(!is.na(crop), time == "T1")
+
+bray_crop_T1 <- bray_meta %>%
+  filter(!is.na(crop), time == "T1")
+
+unweighted_crop_T1 <- unweighted_meta %>%
+  filter(!is.na(crop), time == "T1")
+
+weighted_crop_T1 <- weighted_meta %>%
+  filter(!is.na(crop), time == "T1")
+
+ggplot(jaccard_crop_T1, aes(x = PC1, y = PC2, color = crop)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Jaccard PCoA by Crop (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Crop")
+
+ggplot(bray_crop_T1, aes(x = PC1, y = PC2, color = crop)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Bray-Curtis PCoA by Crop (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Crop")
+
+ggplot(unweighted_crop_T1, aes(x = PC1, y = PC2, color = crop)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Unweighted UniFrac PCoA by Crop (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Crop")
+
+ggplot(weighted_crop_T1, aes(x = PC1, y = PC2, color = crop)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Weighted UniFrac PCoA by Crop (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Crop")
+
+# --------------------------------------------------------
+# Management effect at T1
+# --------------------------------------------------------
+
+jaccard_mgmt_T1 <- jaccard_meta %>%
+  filter(!is.na(farm.type), time == "T1")
+
+bray_mgmt_T1 <- bray_meta %>%
+  filter(!is.na(farm.type), time == "T1")
+
+unweighted_mgmt_T1 <- unweighted_meta %>%
+  filter(!is.na(farm.type), time == "T1")
+
+weighted_mgmt_T1 <- weighted_meta %>%
+  filter(!is.na(farm.type), time == "T1")
+
+ggplot(jaccard_mgmt_T1, aes(x = PC1, y = PC2, color = farm.type)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Jaccard PCoA by Management (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Management")
+
+ggplot(bray_mgmt_T1, aes(x = PC1, y = PC2, color = farm.type)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Bray-Curtis PCoA by Management (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Management")
+
+ggplot(unweighted_mgmt_T1, aes(x = PC1, y = PC2, color = farm.type)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Unweighted UniFrac PCoA by Management (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Management")
+
+ggplot(weighted_mgmt_T1, aes(x = PC1, y = PC2, color = farm.type)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Weighted UniFrac PCoA by Management (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Management")
+
+# --------------------------------------------------------
+# Bag effect at T1
+# --------------------------------------------------------
+
+jaccard_bag_T1 <- jaccard_meta %>%
+  filter(!is.na(bag), time == "T1")
+
+bray_bag_T1 <- bray_meta %>%
+  filter(!is.na(bag), time == "T1")
+
+unweighted_bag_T1 <- unweighted_meta %>%
+  filter(!is.na(bag), time == "T1")
+
+weighted_bag_T1 <- weighted_meta %>%
+  filter(!is.na(bag), time == "T1")
+
+ggplot(jaccard_bag_T1, aes(x = PC1, y = PC2, color = bag)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Jaccard PCoA by Bag Type (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Bag Type")
+
+ggplot(bray_bag_T1, aes(x = PC1, y = PC2, color = bag)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Bray-Curtis PCoA by Bag Type (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Bag Type")
+
+ggplot(unweighted_bag_T1, aes(x = PC1, y = PC2, color = bag)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Unweighted UniFrac PCoA by Bag Type (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Bag Type")
+
+ggplot(weighted_bag_T1, aes(x = PC1, y = PC2, color = bag)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Weighted UniFrac PCoA by Bag Type (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Bag Type")
+
+# --------------------------------------------------------
+# Farm-level exploration at T1 - To explore Hierarchical effects 
+# --------------------------------------------------------
+
+bray_farm_T1 <- bray_meta %>%
+  filter(!is.na(farmcode), time == "T1")
+
+weighted_farm_T1 <- weighted_meta %>%
+  filter(!is.na(farmcode), time == "T1")
+
+ggplot(bray_farm_T1, aes(x = PC1, y = PC2, color = farmcode)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Bray-Curtis PCoA by Farm (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Farm")
+
+ggplot(weighted_farm_T1, aes(x = PC1, y = PC2, color = farmcode)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Weighted UniFrac PCoA by Farm (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Farm")
+
+# --------------------------------------------------------
+# Field-level exploration at T1 - To explore Hierarchical effects 
+# --------------------------------------------------------
+
+bray_field_T1 <- bray_meta %>%
+  filter(!is.na(fieldname), time == "T1")
+
+weighted_field_T1 <- weighted_meta %>%
+  filter(!is.na(fieldname), time == "T1")
+
+ggplot(bray_field_T1, aes(x = PC1, y = PC2, color = fieldname)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Bray-Curtis PCoA by Field (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Field")
+
+ggplot(weighted_field_T1, aes(x = PC1, y = PC2, color = fieldname)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Weighted UniFrac PCoA by Field (T1)",
+       x = "PC1",
+       y = "PC2",
+       color = "Field")
