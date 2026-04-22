@@ -1,0 +1,181 @@
+# Set working directory
+setwd("C:/Users/mart2776/OneDrive - purdue.edu/Desktop/ANSC-2026/FINAL PROJECT")
+
+# Load libraries
+library(qiime2R)
+library(Hmisc)
+library(reshape2)
+library(tidyverse)
+
+# --------------------------------------------------------
+# Read data
+# --------------------------------------------------------
+
+metadata <- read_q2metadata("PSB.meta.data.Martinez.qiime.tsv")
+table_qza <- read_qza("table_run1.qza")
+
+# --------------------------------------------------------
+# Filter to project samples at T1 
+# --------------------------------------------------------
+
+# Keeping only project samples at T1
+metadata_t1 <- metadata %>%
+  filter(Type == "project", time == "T1")
+
+# Matching samples between metadata and feature table - Fixing previous issue 
+shared_samples <- intersect(metadata_t1$SampleID, colnames(table_qza$data))
+
+metadata_matched <- metadata_t1 %>%
+  filter(SampleID %in% shared_samples) %>%
+  slice(match(shared_samples, SampleID))
+
+# Subset feature table
+feature_t1 <- table_qza$data[, shared_samples, drop = FALSE]
+
+# --------------------------------------------------------
+# Pre-filter ASVs
+# --------------------------------------------------------
+
+# Prevalence filter (present in ≥20% of samples)
+prev_cutoff <- ceiling(0.20 * ncol(feature_t1))
+asv_prevalence <- rowSums(feature_t1 > 0)
+feature_filt <- feature_t1[asv_prevalence >= prev_cutoff, , drop = FALSE]
+
+# Abundance filter (total counts ≥50)
+asv_total <- rowSums(feature_filt)
+feature_filt <- feature_filt[asv_total >= 50, , drop = FALSE]
+
+# --------------------------------------------------------
+# Co-occurrence function
+# --------------------------------------------------------
+
+run_cooccurrence <- function(feature_table, metadata_df, group_column,
+                             output_prefix,
+                             q_cutoff = 0.05,
+                             rho_cutoff = 0.6,
+                             min_n = 4) {
+
+  # Keep only shared samples and correct order
+  samples_use <- intersect(colnames(feature_table), metadata_df$SampleID)
+  metadata_df <- metadata_df %>%
+    filter(SampleID %in% samples_use) %>%
+    slice(match(samples_use, SampleID))
+
+  feature_table <- feature_table[, samples_use, drop = FALSE]
+
+  # Prepare ASV table
+  ASV_table <- as.data.frame(feature_table)
+  ASV_table$ASV_id <- paste0("ASV", seq_len(nrow(ASV_table)))
+  ASV_table$ASV_seq <- rownames(ASV_table)
+  rownames(ASV_table) <- ASV_table$ASV_id
+
+  ASV_key <- ASV_table[, c("ASV_id", "ASV_seq")]
+  ASV_table <- ASV_table[, !(colnames(ASV_table) %in% c("ASV_id", "ASV_seq"))]
+
+  # Transpose (samples as rows)
+  dataset <- as.data.frame(t(ASV_table))
+  dataset$SampleID <- rownames(dataset)
+
+  # Merge metadata
+  dataset <- merge(metadata_df, dataset, by = "SampleID")
+
+  # Remove missing group values
+  dataset <- dataset[!is.na(dataset[[group_column]]), ]
+
+  # Identify ASV columns
+  asv_cols <- setdiff(colnames(dataset), colnames(metadata_df))
+
+  # Replace zeros with NA for sample size calculation
+  dataset_n <- dataset
+  dataset_n[, asv_cols][dataset_n[, asv_cols] == 0] <- NA
+
+  groups <- unique(dataset[[group_column]])
+  final_results <- data.frame()
+
+  for (g in groups) {
+
+    temp  <- subset(dataset, dataset[[group_column]] == g)
+    tempn <- subset(dataset_n, dataset_n[[group_column]] == g)
+
+    # Skip groups with very low sample size
+    if (nrow(temp) < 5) next
+
+    mat  <- as.matrix(temp[, asv_cols])
+    matn <- as.matrix(tempn[, asv_cols])
+
+    corr  <- rcorr(mat, type = "spearman")
+    corrn <- rcorr(matn, type = "spearman")
+
+    rhos <- corr$r
+    ps   <- corr$P
+    ns   <- corrn$n
+
+    # Convert to long format
+    ps_df <- na.omit(melt(ps))
+    colnames(ps_df) <- c("ASV1", "ASV2", "pval")
+    ps_df$qval <- p.adjust(ps_df$pval, method = "BH")
+
+    rhos_df <- na.omit(melt(rhos))
+    colnames(rhos_df) <- c("ASV1", "ASV2", "rho")
+
+    ns_df <- melt(ns)
+    colnames(ns_df) <- c("ASV1", "ASV2", "n")
+
+    # Merge results
+    merged <- ps_df %>%
+      filter(qval < q_cutoff) %>%
+      inner_join(rhos_df, by = c("ASV1", "ASV2")) %>%
+      inner_join(ns_df, by = c("ASV1", "ASV2")) %>%
+      filter(n > min_n, ASV1 != ASV2)
+
+    # Apply rho filter
+    merged <- merged %>% filter(abs(rho) >= rho_cutoff)
+
+    if (nrow(merged) > 0) {
+      merged$group <- g
+      final_results <- rbind(final_results, merged)
+    }
+  }
+
+  # Remove duplicated pairs
+  final_results$pair <- apply(
+    final_results[, c("ASV1", "ASV2")],
+    1,
+    function(x) paste(sort(x), collapse = "_")
+  )
+
+  final_results <- final_results[!duplicated(paste(final_results$group, final_results$pair)), ]
+  final_results$pair <- NULL
+
+  # Add ASV sequences back
+  final_taxa <- final_results %>%
+    left_join(ASV_key, by = c("ASV1" = "ASV_id")) %>%
+    left_join(ASV_key, by = c("ASV2" = "ASV_id"))
+
+  # Save outputs
+  write.csv(final_results,
+            paste0(output_prefix, "_cooccurrence_results.csv"),
+            row.names = FALSE)
+
+  write.csv(final_taxa,
+            paste0(output_prefix, "_cooccurrence_results_with_sequences.csv"),
+            row.names = FALSE)
+
+  return(list(results = final_results, taxa = final_taxa))
+}
+
+# --------------------------------------------------------
+# Run analyses
+# --------------------------------------------------------
+
+# Crop
+crop_meta <- metadata_matched %>% filter(!is.na(crop))
+crop_out <- run_cooccurrence(feature_filt, crop_meta, "crop", "T1_crop")
+
+# Management
+mgmt_meta <- metadata_matched %>% filter(!is.na(farm.type))
+mgmt_out <- run_cooccurrence(feature_filt, mgmt_meta, "farm.type", "T1_management")
+
+# Bag
+bag_meta <- metadata_matched %>% filter(!is.na(bag))
+bag_out <- run_cooccurrence(feature_filt, bag_meta, "bag", "T1_bag")
